@@ -95,6 +95,16 @@ public class DefaultRepositoryFinderTest {
 
 	}
 
+    @Test
+   public void testFindRepoByClientWithParentId() {
+
+        ObjectRepository<ChildItem> repoByClient = db.repository(ChildItem.class).withTypeId("parentId").get();
+
+        assertTrue(repoByClient.isOpen());
+        repoByClient.close();
+
+    }
+
 
 	@Test
 	public void testFindRepoByClientWithKeyAndInvalidID() {
@@ -132,6 +142,7 @@ public class DefaultRepositoryFinderTest {
 		repoByConvenient.close();
 		assertFalse(repoByConvenient.isOpen());
 	}
+
 
 	@Test
 	public void testFindRepoByConvWithKey() { 
@@ -411,4 +422,17 @@ public class DefaultRepositoryFinderTest {
 		
 		private String repoKey ; 
 	}
+
+    private  static class ParentItem implements  Serializable{
+        private Integer parentId  ;
+
+    }
+
+    private static class ChildItem extends  ParentItem {
+        private String itemName ;
+        private String repoKey ;
+
+    }
+
+
 }

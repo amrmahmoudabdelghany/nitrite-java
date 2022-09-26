@@ -49,271 +49,276 @@ import static org.dizitart.no2.common.util.StringUtils.isNullOrEmpty;
  * @since 4.0
  */
 public class RepositoryOperations {
-	private final NitriteMapper nitriteMapper;
-	private final Class<?> type;
-	private final NitriteCollection collection;
-	private final AnnotationScanner annotationScanner;
-	private ObjectIdField objectIdField;
+    private final NitriteMapper nitriteMapper;
+    private final Class<?> type;
+    private final NitriteCollection collection;
+    private final AnnotationScanner annotationScanner;
+    private ObjectIdField objectIdField;
+    private Reflector reflector;
 
-	/**
-	 * Instantiates a new {@link RepositoryOperations}.
-	 *
-	 * @param type          the type
-	 * @param nitriteMapper the nitrite mapper
-	 * @param collection    the collection
-	 */
-	public RepositoryOperations(Class<?> type, NitriteMapper nitriteMapper, NitriteCollection collection) {
-		this.type = type;
-		this.nitriteMapper = nitriteMapper;
-		this.collection = collection;
-		this.annotationScanner = new AnnotationScanner(type, collection, nitriteMapper);
-		validateCollection();
-	}
+    /**
+     * Instantiates a new {@link RepositoryOperations}.
+     *
+     * @param type          the type
+     * @param nitriteMapper the nitrite mapper
+     * @param collection    the collection
+     */
+    public RepositoryOperations(Class<?> type, NitriteMapper nitriteMapper, NitriteCollection collection) {
+        this.type = type;
+        this.nitriteMapper = nitriteMapper;
+        this.collection = collection;
+        this.reflector = new Reflector();
+        this.annotationScanner = new AnnotationScanner(type, collection, nitriteMapper, this.reflector);
+        validateCollection();
+    }
 
-	/**
-	 * Create indices.
-	 */
-	public void createIndices() {
-		// annotationScanner.scanIndices();
-		// annotationScanner.createIndices();
-		// annotationScanner.createIdIndex();
-		// objectIdField = annotationScanner.getObjectIdField();
-		// this.collection.getAttributes().set(RepositoryAttributes.ID_FIELD_NAME,
-		// objectIdField.getIdFieldName());
+    /**
+     * Create indices.
+     */
+    public void createIndices() {
+        // annotationScanner.scanIndices();
+        // annotationScanner.createIndices();
+        // annotationScanner.createIdIndex();
+        // objectIdField = annotationScanner.getObjectIdField();
+        // this.collection.getAttributes().set(RepositoryAttributes.ID_FIELD_NAME,
+        // objectIdField.getIdFieldName());
 
-		createIndices(null);
-	}
+        createIndices(null);
+    }
 
-	public void createIndices(String idFieldName) {
+    public void createIndices(String idFieldName) {
 
-		// if no id field name specified manually then try to check annotations
-		if (StringUtils.isNullOrEmpty(idFieldName)) {
+        // if no id field name specified manually then try to check annotations
+        if (StringUtils.isNullOrEmpty(idFieldName)) {
 
-			annotationScanner.scanIndices();
-			annotationScanner.createIndices();
-			annotationScanner.createIdIndex();
-			objectIdField = annotationScanner.getObjectIdField();
+            annotationScanner.scanIndices();
+            annotationScanner.createIndices();
+            annotationScanner.createIdIndex();
+            objectIdField = annotationScanner.getObjectIdField();
 
-			// if is still null 
-			 if(objectIdField == null) { 
-					tryFindImplicitId();
-			 }
+            // if is still null
+            if (objectIdField == null) {
+                tryFindImplicitId();
+            }
 
-		} else {
+        } else {
 
-		 Field idField = 	getFieldWithName(idFieldName)
-			.orElseThrow(()->new InvalidIdException("Invalid id " + idFieldName)) ;
-  
-		    createObjectIdFieldWithField(idField);
-	
+            Field idField = getFieldWithName(idFieldName)
+                .orElseThrow(() -> new InvalidIdException("Invalid id " + idFieldName));
 
-		}
+            createObjectIdFieldWithField(idField);
 
-	}
 
-	private void createObjectIdFieldWithField(Field idField) {
-		collection.dropAllIndices();
+        }
 
-		objectIdField = new ObjectIdField();
-		objectIdField.setField(idField);
-		objectIdField.setIdFieldName(idField.getName());
-		objectIdField.setEmbedded(false); // currently embedded fields for manually defined id not supported
+    }
 
-		// create id index ;
+    private void createObjectIdFieldWithField(Field idField) {
+        collection.dropAllIndices();
 
-		String[] fieldNames = objectIdField.getFieldNames(nitriteMapper);
-		if (!collection.hasIndex(fieldNames)) {
+        objectIdField = new ObjectIdField();
+        objectIdField.setField(idField);
+        objectIdField.setIdFieldName(idField.getName());
+        objectIdField.setEmbedded(false); // currently embedded fields for manually defined id not supported
 
-			collection.createIndex(fieldNames);
-		}
-	}
+        // create id index ;
 
-	private Optional<Field> getFieldWithName(String name) {
+        String[] fieldNames = objectIdField.getFieldNames(nitriteMapper);
+        if (!collection.hasIndex(fieldNames)) {
 
-		return Stream.of(type.getDeclaredFields()).filter((f) -> f.getName().equals(name)).findFirst();
-	}
+            collection.createIndex(fieldNames);
+        }
+    }
 
-	private void tryFindImplicitId() {
 
-		 getFieldWithName("id").ifPresent((idField)->{
-			createObjectIdFieldWithField(idField);
+    private Optional<Field> getFieldWithName(String name) {
+        return this.reflector.getFieldsUpto(type, Object.class)
+            .stream()
+            .filter((f) -> f.getName().equals(name))
+            .findFirst();
+    }
 
-		});
-		
-	}
+    private void tryFindImplicitId() {
 
-	/**
-	 * Serialize fields.
-	 *
-	 * @param document the document
-	 */
-	public void serializeFields(Document document) {
-		if (document != null) {
-			for (Pair<String, Object> pair : document) {
-				String key = pair.getFirst();
-				Object value = pair.getSecond();
-				Object serializedValue;
-				serializedValue = nitriteMapper.convert(value, Document.class);
-				document.put(key, serializedValue);
-			}
-		}
-	}
+        getFieldWithName("id").ifPresent((idField) -> {
+            createObjectIdFieldWithField(idField);
 
-	/**
-	 * To documents document [ ].
-	 *
-	 * @param <T>    the type parameter
-	 * @param others the others
-	 * @return the document [ ]
-	 */
-	public <T> Document[] toDocuments(T[] others) {
-		if (others == null || others.length == 0)
-			return null;
-		Document[] documents = new Document[others.length];
-		for (int i = 0; i < others.length; i++) {
-			documents[i] = toDocument(others[i], false); // this method is for insert only
-		}
-		return documents;
-	}
+        });
 
-	/**
-	 * To document document.
-	 *
-	 * @param <T>    the type parameter
-	 * @param object the object
-	 * @param update the update
-	 * @return the document
-	 */
-	public <T> Document toDocument(T object, boolean update) {
-		Document document = nitriteMapper.convert(object, Document.class);
-		if (document == null) {
-			throw new ObjectMappingException("Failed to map object to document");
-		}
+    }
 
-		if (objectIdField != null) {
-			Field idField = objectIdField.getField();
+    /**
+     * Serialize fields.
+     *
+     * @param document the document
+     */
+    public void serializeFields(Document document) {
+        if (document != null) {
+            for (Pair<String, Object> pair : document) {
+                String key = pair.getFirst();
+                Object value = pair.getSecond();
+                Object serializedValue;
+                serializedValue = nitriteMapper.convert(value, Document.class);
+                document.put(key, serializedValue);
+            }
+        }
+    }
 
-			if (idField.getType() == NitriteId.class) {
-				try {
-					idField.setAccessible(true);
-					if (idField.get(object) == null) {
-						NitriteId id = document.getId();
-						idField.set(object, id);
-						document.put(objectIdField.getIdFieldName(), nitriteMapper.convert(id, Comparable.class));
-					} else if (!update) {
-						// if it is an insert, then we should not allow to insert the document with user
-						// provided id
-						throw new InvalidIdException("Auto generated id should not be set manually");
-					}
-				} catch (IllegalAccessException iae) {
-					throw new InvalidIdException("Auto generated id value cannot be accessed");
-				}
-			}
+    /**
+     * To documents document [ ].
+     *
+     * @param <T>    the type parameter
+     * @param others the others
+     * @return the document [ ]
+     */
+    public <T> Document[] toDocuments(T[] others) {
+        if (others == null || others.length == 0)
+            return null;
+        Document[] documents = new Document[others.length];
+        for (int i = 0; i < others.length; i++) {
+            documents[i] = toDocument(others[i], false); // this method is for insert only
+        }
+        return documents;
+    }
 
-			Object idValue = document.get(objectIdField.getIdFieldName());
-			if (idValue == null) {
-				throw new InvalidIdException("Id cannot be null");
-			}
-			if (idValue instanceof String && isNullOrEmpty((String) idValue)) {
-				throw new InvalidIdException("Id value cannot be empty string");
-			}
-		}
-		return document;
-	}
+    /**
+     * To document document.
+     *
+     * @param <T>    the type parameter
+     * @param object the object
+     * @param update the update
+     * @return the document
+     */
+    public <T> Document toDocument(T object, boolean update) {
+        Document document = nitriteMapper.convert(object, Document.class);
+        if (document == null) {
+            throw new ObjectMappingException("Failed to map object to document");
+        }
 
-	/**
-	 * Create unique filter filter.
-	 *
-	 * @param object the object
-	 * @return the filter
-	 */
-	public Filter createUniqueFilter(Object object) {
-		if (objectIdField == null) {
-			throw new NotIdentifiableException("No id value found for the object");
-		}
+        if (objectIdField != null) {
+            Field idField = objectIdField.getField();
 
-		Field idField = objectIdField.getField();
-		idField.setAccessible(true);
-		try {
-			Object value = idField.get(object);
-			if (value == null) {
-				throw new InvalidIdException("Id value cannot be null");
-			}
-			return objectIdField.createUniqueFilter(value, nitriteMapper);
-		} catch (IllegalAccessException iae) {
-			throw new InvalidIdException("Id field is not accessible");
-		}
-	}
+            if (idField.getType() == NitriteId.class) {
+                try {
+                    idField.setAccessible(true);
+                    if (idField.get(object) == null) {
+                        NitriteId id = document.getId();
+                        idField.set(object, id);
+                        document.put(objectIdField.getIdFieldName(), nitriteMapper.convert(id, Comparable.class));
+                    } else if (!update) {
+                        // if it is an insert, then we should not allow to insert the document with user
+                        // provided id
+                        throw new InvalidIdException("Auto generated id should not be set manually");
+                    }
+                } catch (IllegalAccessException iae) {
+                    throw new InvalidIdException("Auto generated id value cannot be accessed");
+                }
+            }
 
-	/**
-	 * Remove nitrite id.
-	 *
-	 * @param document the document
-	 */
-	public void removeNitriteId(Document document) {
-		document.remove(DOC_ID);
-		if (objectIdField != null) {
-			Field idField = objectIdField.getField();
-			if (idField != null && !objectIdField.isEmbedded() && idField.getType() == NitriteId.class) {
-				document.remove(idField.getName());
-			}
-		}
-	}
+            Object idValue = document.get(objectIdField.getIdFieldName());
+            if (idValue == null) {
+                throw new InvalidIdException("Id cannot be null");
+            }
+            if (idValue instanceof String && isNullOrEmpty((String) idValue)) {
+                throw new InvalidIdException("Id value cannot be empty string");
+            }
+        }
+        return document;
+    }
 
-	/**
-	 * Create id filter filter.
-	 *
-	 * @param <I> the type parameter
-	 * @param id  the id
-	 * @return the filter
-	 */
-	public <I> Filter createIdFilter(I id) {
-		if (objectIdField != null) {
-			if (id == null) {
-				throw new InvalidIdException("Id cannot be null");
-			}
-			if (!isCompatibleTypes(id.getClass(), objectIdField.getField().getType())) {
-				throw new InvalidIdException("A value of invalid type is provided as id");
-			}
+    /**
+     * Create unique filter filter.
+     *
+     * @param object the object
+     * @return the filter
+     */
+    public Filter createUniqueFilter(Object object) {
+        if (objectIdField == null) {
+            throw new NotIdentifiableException("No id value found for the object");
+        }
 
-			return objectIdField.createUniqueFilter(id, nitriteMapper);
-		} else {
-			throw new NotIdentifiableException(type.getName() + " does not have any id field");
-		}
-	}
+        Field idField = objectIdField.getField();
+        idField.setAccessible(true);
+        try {
+            Object value = idField.get(object);
+            if (value == null) {
+                throw new InvalidIdException("Id value cannot be null");
+            }
+            return objectIdField.createUniqueFilter(value, nitriteMapper);
+        } catch (IllegalAccessException iae) {
+            throw new InvalidIdException("Id field is not accessible");
+        }
+    }
 
-	/**
-	 * As object filter filter.
-	 *
-	 * @param filter the filter
-	 * @return the filter
-	 */
-	public Filter asObjectFilter(Filter filter) {
-		if (filter instanceof NitriteFilter) {
-			NitriteFilter nitriteFilter = (NitriteFilter) filter;
-			nitriteFilter.setObjectFilter(true);
-			return nitriteFilter;
-		}
-		return filter;
-	}
+    /**
+     * Remove nitrite id.
+     *
+     * @param document the document
+     */
+    public void removeNitriteId(Document document) {
+        document.remove(DOC_ID);
+        if (objectIdField != null) {
+            Field idField = objectIdField.getField();
+            if (idField != null && !objectIdField.isEmbedded() && idField.getType() == NitriteId.class) {
+                document.remove(idField.getName());
+            }
+        }
+    }
 
-	/**
-	 * Find cursor.
-	 *
-	 * @param <T>         the type parameter
-	 * @param filter      the filter
-	 * @param findOptions the find options
-	 * @param type        the type
-	 * @return the cursor
-	 */
-	public <T> Cursor<T> find(Filter filter, FindOptions findOptions, Class<T> type) {
-		DocumentCursor documentCursor = collection.find(asObjectFilter(filter), findOptions);
-		return new ObjectCursor<>(nitriteMapper, documentCursor, type);
-	}
+    /**
+     * Create id filter filter.
+     *
+     * @param <I> the type parameter
+     * @param id  the id
+     * @return the filter
+     */
+    public <I> Filter createIdFilter(I id) {
+        if (objectIdField != null) {
+            if (id == null) {
+                throw new InvalidIdException("Id cannot be null");
+            }
+            if (!isCompatibleTypes(id.getClass(), objectIdField.getField().getType())) {
+                throw new InvalidIdException("A value of invalid type is provided as id");
+            }
 
-	private void validateCollection() {
-		if (collection == null) {
-			throw new ValidationException("Repository has not been initialized properly");
-		}
-	}
+            return objectIdField.createUniqueFilter(id, nitriteMapper);
+        } else {
+            throw new NotIdentifiableException(type.getName() + " does not have any id field");
+        }
+    }
+
+    /**
+     * As object filter filter.
+     *
+     * @param filter the filter
+     * @return the filter
+     */
+    public Filter asObjectFilter(Filter filter) {
+        if (filter instanceof NitriteFilter) {
+            NitriteFilter nitriteFilter = (NitriteFilter) filter;
+            nitriteFilter.setObjectFilter(true);
+            return nitriteFilter;
+        }
+        return filter;
+    }
+
+    /**
+     * Find cursor.
+     *
+     * @param <T>         the type parameter
+     * @param filter      the filter
+     * @param findOptions the find options
+     * @param type        the type
+     * @return the cursor
+     */
+    public <T> Cursor<T> find(Filter filter, FindOptions findOptions, Class<T> type) {
+        DocumentCursor documentCursor = collection.find(asObjectFilter(filter), findOptions);
+        return new ObjectCursor<>(nitriteMapper, documentCursor, type);
+    }
+
+    private void validateCollection() {
+        if (collection == null) {
+            throw new ValidationException("Repository has not been initialized properly");
+        }
+    }
 }

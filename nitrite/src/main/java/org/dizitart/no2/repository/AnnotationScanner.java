@@ -43,13 +43,18 @@ class AnnotationScanner {
     @Getter
     private ObjectIdField objectIdField;
 
-    public AnnotationScanner(Class<?> type, NitriteCollection collection, NitriteMapper nitriteMapper) {
+
+    public AnnotationScanner(Class<?>type , NitriteCollection collection , NitriteMapper nitriteMapper , Reflector reflector) {
         this.type = type;
         this.nitriteMapper = nitriteMapper;
         this.collection = collection;
-        this.reflector = new Reflector();
+        this.reflector = reflector;
         this.indices = new HashSet<>();
         this.indexValidator = new IndexValidator(reflector);
+
+    }
+    public AnnotationScanner(Class<?> type, NitriteCollection collection, NitriteMapper nitriteMapper) {
+        this(type , collection , nitriteMapper , new Reflector()) ;
     }
 
     public void createIndices() {
